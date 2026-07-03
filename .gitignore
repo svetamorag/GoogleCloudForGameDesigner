@@ -1,0 +1,10 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local config (contains your GCP project id)
+.env
+
+# Generated assets (local gallery storage)
+assets/

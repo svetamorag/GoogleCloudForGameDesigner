@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Asset Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- Chat sidebar -->
+  <aside id="chat-panel">
+    <header>
+      <h1>Game Asset Studio</h1>
+      <p class="subtitle">Gemini on Vertex AI</p>
+      <div id="project-bar">
+        <select id="project-select"></select>
+        <button id="project-new" title="New project">+</button>
+        <button id="project-style" title="Project style guide">Style</button>
+      </div>
+      <div id="style-guide-panel" class="hidden">
+        <textarea id="style-guide-text" rows="3" placeholder="Style guide for this project (palette, rendering style, era)... auto-applied to every character prompt."></textarea>
+        <button id="style-guide-save">Save</button>
+      </div>
+    </header>
+    <div id="chat-messages">
+      <div class="msg model">Hi! Describe a character to generate 5 options (I'll add more visual detail to your prompt automatically), ask me to edit an image, remove a background, or voice a line in 3 male or female voices. You can also use the tabs directly.</div>
+    </div>
+    <form id="chat-form">
+      <input id="chat-input" type="text" placeholder="e.g. generate a goblin alchemist..." autocomplete="off">
+      <button type="submit" title="Send">&#10148;</button>
+    </form>
+  </aside>
+
+  <!-- Main workspace -->
+  <main>
+    <nav id="tabs">
+      <button class="tab active" data-tab="characters">Characters</button>
+      <button class="tab" data-tab="editing">Editing</button>
+      <button class="tab" data-tab="voice">Voice</button>
+      <button class="tab" data-tab="gallery">Gallery</button>
+    </nav>
+
+    <!-- Characters tab -->
+    <section id="tab-characters" class="tab-page active">
+      <div class="toolbar">
+        <input id="character-prompt" type="text" placeholder="Describe your character (e.g. armored space ranger with a plasma axe)">
+        <button id="generate-characters" class="primary">Generate 5 options</button>
+      </div>
+      <div id="character-status" class="status"></div>
+      <div id="character-grid" class="grid"></div>
+    </section>
+
+    <!-- Editing tab -->
+    <section id="tab-editing" class="tab-page">
+      <div class="edit-layout">
+        <div class="edit-canvas">
+          <div id="edit-preview" class="preview empty">
+            <span>No image selected.<br>Pick a generated character or upload one.</span>
+          </div>
+          <div class="edit-source">
+            <label class="upload-btn">
+              Upload image
+              <input id="upload-input" type="file" accept="image/*" hidden>
+            </label>
+            <button id="download-image" disabled>Download</button>
+          </div>
+        </div>
+        <div class="edit-controls">
+          <h3>Edit image</h3>
+          <textarea id="edit-instruction" rows="3" placeholder="e.g. change the cape to red, add a sword, remove the helmet..."></textarea>
+          <button id="apply-edit" class="primary" disabled>Apply edit</button>
+          <button id="remove-bg" disabled>Remove background</button>
+          <div id="edit-status" class="status"></div>
+          <button id="generate-sheet" disabled>Generate character sheet</button>
+          <h3>History</h3>
+          <div id="edit-history" class="history"></div>
+        </div>
+      </div>
+      <div id="sheet-status" class="status"></div>
+      <div id="sheet-grid" class="grid"></div>
+    </section>
+
+    <!-- Voice tab -->
+    <section id="tab-voice" class="tab-page">
+      <div class="toolbar">
+        <input id="voice-text" type="text" maxlength="1000" placeholder="Line to speak (e.g. You shall not pass beyond this gate!)">
+        <div id="voice-gender" class="segmented">
+          <button type="button" class="seg active" data-gender="female">Female</button>
+          <button type="button" class="seg" data-gender="male">Male</button>
+        </div>
+        <button id="generate-voice" class="primary">Generate 3 voices</button>
+      </div>
+      <div id="voice-status" class="status"></div>
+      <div id="voice-grid" class="grid voices"></div>
+
+      <h3 class="section-title">Batch dialogue</h3>
+      <p class="hint">One line per row: <code>Character, Line to speak</code>. Uses each character's bound voice (falls back to a default female voice if unbound).</p>
+      <div class="toolbar">
+        <textarea id="batch-dialogue-text" rows="4" placeholder="Goblin Alchemist, Careful with that vial!&#10;Elven Ranger, Halt, traveler!"></textarea>
+        <button id="generate-batch" class="primary">Generate batch</button>
+      </div>
+      <div id="batch-status" class="status"></div>
+      <div id="batch-grid" class="grid voices"></div>
+    </section>
+
+    <!-- Gallery tab -->
+    <section id="tab-gallery" class="tab-page">
+      <div id="gallery-status" class="status"></div>
+      <div id="gallery-grid" class="grid"></div>
+    </section>
+  </main>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>
