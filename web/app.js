@@ -69,6 +69,12 @@ function imgSrc(image) {
   return `data:${image.mime_type};base64,${image.data_b64}`;
 }
 
+// Value of an <select> option control, or undefined when "Auto" is selected
+// (omitted from the request so the server/model default applies).
+function optionValue(id) {
+  return $(id).value || undefined;
+}
+
 // ---------------------------------------------------------------- projects
 
 function currentProject() {
@@ -155,7 +161,7 @@ async function generateCharacters(prompt) {
   $("character-grid").innerHTML = "";
   try {
     const { images, failed, enhanced_prompt } = await api("/api/characters/generate", {
-      prompt, project_id: state.projectId,
+      prompt, aspect_ratio: optionValue("character-aspect"), project_id: state.projectId,
     });
     renderCharacters(images);
     const note = failed
@@ -253,11 +259,14 @@ async function runEdit(kind, instruction) {
     const body = {
       image_b64: state.currentImage.data_b64,
       mime_type: state.currentImage.mime_type,
+      image_size: optionValue("edit-size"),
       project_id: state.projectId,
     };
     const data = kind === "bg"
       ? await api("/api/images/remove-background", body)
-      : await api("/api/images/edit", { ...body, instruction });
+      : await api("/api/images/edit", {
+          ...body, instruction, aspect_ratio: optionValue("edit-aspect"),
+        });
     state.currentImage = { data_b64: data.image.data_b64, mime_type: data.image.mime_type };
     state.editHistory.push({
       ...state.currentImage,
@@ -318,6 +327,8 @@ async function generateSheet() {
     const { images, failed } = await api("/api/characters/sheet", {
       image_b64: state.currentImage.data_b64,
       mime_type: state.currentImage.mime_type,
+      aspect_ratio: optionValue("edit-aspect"),
+      image_size: optionValue("edit-size"),
       project_id: state.projectId,
     });
     images.forEach((image) => $("sheet-grid").append(sheetCard(image)));

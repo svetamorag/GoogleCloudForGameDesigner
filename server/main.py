@@ -69,18 +69,23 @@ async def security_middleware(request: Request, call_next):
 
 # ---------------------------------------------------------------- request models
 
-MAX_IMAGE_BYTES = 15 * 1024 * 1024
-MAX_IMAGE_B64_CHARS = 21_000_000  # base64 of 15 MB, with margin
+# 4K generations come back as PNGs of ~17 MB+; the cap must leave room to
+# send one back for further editing.
+MAX_IMAGE_BYTES = 30 * 1024 * 1024
+MAX_IMAGE_B64_CHARS = 41_000_000  # base64 of 30 MB, with margin
 
 PROJECT_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
 ImageMime = Literal["image/png", "image/jpeg", "image/webp", "image/gif"]
+AspectRatio = Literal["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"]
+ImageSize = Literal["1K", "2K", "4K"]
 
 ALL_VOICES = frozenset(v for group in gemini_service.VOICES.values() for v in group)
 
 
 class CharacterRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=2000)
+    aspect_ratio: AspectRatio | None = None  # lite image model: aspect ratio only
     project_id: str = Field(default=storage.DEFAULT_PROJECT_ID, pattern=PROJECT_ID_PATTERN)
 
 
@@ -88,18 +93,23 @@ class EditRequest(BaseModel):
     image_b64: str = Field(min_length=1, max_length=MAX_IMAGE_B64_CHARS)
     mime_type: ImageMime = "image/png"
     instruction: str = Field(min_length=1, max_length=2000)
+    aspect_ratio: AspectRatio | None = None
+    image_size: ImageSize | None = None
     project_id: str = Field(default=storage.DEFAULT_PROJECT_ID, pattern=PROJECT_ID_PATTERN)
 
 
 class BackgroundRequest(BaseModel):
     image_b64: str = Field(min_length=1, max_length=MAX_IMAGE_B64_CHARS)
     mime_type: ImageMime = "image/png"
+    image_size: ImageSize | None = None
     project_id: str = Field(default=storage.DEFAULT_PROJECT_ID, pattern=PROJECT_ID_PATTERN)
 
 
 class SheetRequest(BaseModel):
     image_b64: str = Field(min_length=1, max_length=MAX_IMAGE_B64_CHARS)
     mime_type: ImageMime = "image/png"
+    aspect_ratio: AspectRatio | None = None
+    image_size: ImageSize | None = None
     project_id: str = Field(default=storage.DEFAULT_PROJECT_ID, pattern=PROJECT_ID_PATTERN)
 
 
@@ -180,7 +190,9 @@ async def generate_characters(req: CharacterRequest):
     project = await storage.get_project(req.project_id)
     style_guide = project["style_guide"] if project else ""
     try:
-        result = await gemini_service.generate_characters(req.prompt, style_guide)
+        result = await gemini_service.generate_characters(
+            req.prompt, style_guide, req.aspect_ratio
+        )
     except Exception as exc:
         raise _model_error(exc)
     if not result["images"]:
@@ -197,7 +209,9 @@ async def generate_characters(req: CharacterRequest):
 async def edit_image(req: EditRequest):
     image_bytes = _decode_image(req.image_b64)
     try:
-        image = await gemini_service.edit_image(image_bytes, req.mime_type, req.instruction)
+        image = await gemini_service.edit_image(
+            image_bytes, req.mime_type, req.instruction, req.aspect_ratio, req.image_size
+        )
     except Exception as exc:
         raise _model_error(exc)
     await storage.save_asset(
@@ -211,7 +225,9 @@ async def edit_image(req: EditRequest):
 async def remove_background(req: BackgroundRequest):
     image_bytes = _decode_image(req.image_b64)
     try:
-        image = await gemini_service.remove_background(image_bytes, req.mime_type)
+        image = await gemini_service.remove_background(
+            image_bytes, req.mime_type, req.image_size
+        )
     except Exception as exc:
         raise _model_error(exc)
     await storage.save_asset(
@@ -228,7 +244,7 @@ async def character_sheet(req: SheetRequest):
     style_guide = project["style_guide"] if project else ""
     try:
         result = await gemini_service.generate_character_sheet(
-            image_bytes, req.mime_type, style_guide
+            image_bytes, req.mime_type, style_guide, req.aspect_ratio, req.image_size
         )
     except Exception as exc:
         raise _model_error(exc)

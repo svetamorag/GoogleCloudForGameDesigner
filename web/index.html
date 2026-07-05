@@ -46,6 +46,20 @@
     <section id="tab-characters" class="tab-page active">
       <div class="toolbar">
         <input id="character-prompt" type="text" placeholder="Describe your character (e.g. armored space ranger with a plasma axe)">
+        <label class="option-label" for="character-aspect">Aspect</label>
+        <select id="character-aspect" class="option-select" title="Aspect ratio of the generated options">
+          <option value="">Auto</option>
+          <option value="1:1">1:1 square</option>
+          <option value="2:3">2:3 portrait</option>
+          <option value="3:4">3:4 portrait</option>
+          <option value="4:5">4:5 portrait</option>
+          <option value="9:16">9:16 tall</option>
+          <option value="3:2">3:2 landscape</option>
+          <option value="4:3">4:3 landscape</option>
+          <option value="5:4">5:4 landscape</option>
+          <option value="16:9">16:9 wide</option>
+          <option value="21:9">21:9 ultrawide</option>
+        </select>
         <button id="generate-characters" class="primary">Generate 5 options</button>
       </div>
       <div id="character-status" class="status"></div>
@@ -70,6 +84,29 @@
         <div class="edit-controls">
           <h3>Edit image</h3>
           <textarea id="edit-instruction" rows="3" placeholder="e.g. change the cape to red, add a sword, remove the helmet..."></textarea>
+          <div class="option-row">
+            <label class="option-label" for="edit-aspect">Aspect</label>
+            <select id="edit-aspect" class="option-select" title="Aspect ratio of the edited result (Auto keeps the source framing)">
+              <option value="">Auto</option>
+              <option value="1:1">1:1 square</option>
+              <option value="2:3">2:3 portrait</option>
+              <option value="3:4">3:4 portrait</option>
+              <option value="4:5">4:5 portrait</option>
+              <option value="9:16">9:16 tall</option>
+              <option value="3:2">3:2 landscape</option>
+              <option value="4:3">4:3 landscape</option>
+              <option value="5:4">5:4 landscape</option>
+              <option value="16:9">16:9 wide</option>
+              <option value="21:9">21:9 ultrawide</option>
+            </select>
+            <label class="option-label" for="edit-size">Size</label>
+            <select id="edit-size" class="option-select" title="Output resolution (longest side; 4K files are large)">
+              <option value="">Auto</option>
+              <option value="1K">1K</option>
+              <option value="2K">2K</option>
+              <option value="4K">4K</option>
+            </select>
+          </div>
           <button id="apply-edit" class="primary" disabled>Apply edit</button>
           <button id="remove-bg" disabled>Remove background</button>
           <div id="edit-status" class="status"></div>

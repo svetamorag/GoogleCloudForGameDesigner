@@ -78,6 +78,19 @@ def error_summary(exc: Exception) -> str:
 
 # ---------------------------------------------------------------- images
 
+# Verified against the deployed models (July 2026):
+#   gemini-3.1-flash-lite-image  supports aspect_ratio only
+#   gemini-3.1-flash-image       supports aspect_ratio + image_size (1K/2K/4K)
+ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
+IMAGE_SIZES = ("1K", "2K", "4K")
+
+
+def _image_config(aspect_ratio: str | None = None, image_size: str | None = None):
+    if not aspect_ratio and not image_size:
+        return None
+    return types.ImageConfig(aspect_ratio=aspect_ratio or None, image_size=image_size or None)
+
+
 def _extract_image(response) -> dict | None:
     for candidate in response.candidates or []:
         for part in candidate.content.parts or []:
@@ -113,7 +126,7 @@ async def _with_retry(coro_factory, attempts: int = 5, base_delay: float = 12.0)
 _image_semaphore = asyncio.Semaphore(2)
 
 
-async def _generate_one_character(prompt: str, index: int) -> dict | None:
+async def _generate_one_character(prompt: str, index: int, aspect_ratio: str | None = None) -> dict | None:
     full_prompt = (
         "Game character concept art, full body, clean readable silhouette, "
         f"plain neutral studio background. Design variation {index + 1} of 5 - "
@@ -125,7 +138,11 @@ async def _generate_one_character(prompt: str, index: int) -> dict | None:
             lambda: get_client().aio.models.generate_content(
                 model=IMAGE_MODEL_LITE,
                 contents=full_prompt,
-                config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+                config=types.GenerateContentConfig(
+                    response_modalities=["TEXT", "IMAGE"],
+                    # The lite model accepts aspect_ratio but not image_size.
+                    image_config=_image_config(aspect_ratio=aspect_ratio),
+                ),
             )
         )
     image = _extract_image(response)
@@ -158,14 +175,16 @@ async def enhance_prompt(prompt: str, style_guide: str = "") -> str:
     return text or prompt
 
 
-async def generate_characters(prompt: str, style_guide: str = "") -> dict:
+async def generate_characters(
+    prompt: str, style_guide: str = "", aspect_ratio: str | None = None
+) -> dict:
     """Five character options on Nano Banana 2 Lite, throttled to fit quota."""
     try:
         enhanced_prompt = await enhance_prompt(prompt, style_guide)
     except Exception:
         enhanced_prompt = prompt
     results = await asyncio.gather(
-        *(_generate_one_character(enhanced_prompt, i) for i in range(5)),
+        *(_generate_one_character(enhanced_prompt, i, aspect_ratio) for i in range(5)),
         return_exceptions=True,
     )
     images = [r for r in results if isinstance(r, dict)]
@@ -183,7 +202,13 @@ async def generate_characters(prompt: str, style_guide: str = "") -> dict:
     }
 
 
-async def _edit_image_call(image_bytes: bytes, mime_type: str, instruction: str) -> dict:
+async def _edit_image_call(
+    image_bytes: bytes,
+    mime_type: str,
+    instruction: str,
+    aspect_ratio: str | None = None,
+    image_size: str | None = None,
+) -> dict:
     async with _image_semaphore:
         response = await _with_retry(
             lambda: get_client().aio.models.generate_content(
@@ -192,7 +217,10 @@ async def _edit_image_call(image_bytes: bytes, mime_type: str, instruction: str)
                     types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                     instruction,
                 ],
-                config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+                config=types.GenerateContentConfig(
+                    response_modalities=["TEXT", "IMAGE"],
+                    image_config=_image_config(aspect_ratio, image_size),
+                ),
             )
         )
     image = _extract_image(response)
@@ -201,22 +229,31 @@ async def _edit_image_call(image_bytes: bytes, mime_type: str, instruction: str)
     return image
 
 
-async def edit_image(image_bytes: bytes, mime_type: str, instruction: str) -> dict:
+async def edit_image(
+    image_bytes: bytes,
+    mime_type: str,
+    instruction: str,
+    aspect_ratio: str | None = None,
+    image_size: str | None = None,
+) -> dict:
     """Object editing on Nano Banana 2."""
     prompt = (
         "Edit the provided image. Apply exactly this change and keep everything "
         f"else identical: {instruction}"
     )
-    return await _edit_image_call(image_bytes, mime_type, prompt)
+    return await _edit_image_call(image_bytes, mime_type, prompt, aspect_ratio, image_size)
 
 
-async def remove_background(image_bytes: bytes, mime_type: str) -> dict:
+async def remove_background(
+    image_bytes: bytes, mime_type: str, image_size: str | None = None
+) -> dict:
     prompt = (
         "Remove the background from the provided image completely. Keep the main "
         "subject pixel-perfect and unchanged. Output the subject on a fully "
         "transparent background (PNG with alpha). Do not add shadows or new elements."
     )
-    return await _edit_image_call(image_bytes, mime_type, prompt)
+    # Aspect ratio is deliberately left unset so the subject's framing survives.
+    return await _edit_image_call(image_bytes, mime_type, prompt, image_size=image_size)
 
 
 # Character sheet views: (label, instruction). Each keeps identity fixed via
@@ -242,11 +279,19 @@ CHARACTER_SHEET_VIEWS = [
 
 
 async def _generate_sheet_view(
-    image_bytes: bytes, mime_type: str, label: str, instruction: str, style_guide: str
+    image_bytes: bytes,
+    mime_type: str,
+    label: str,
+    instruction: str,
+    style_guide: str,
+    aspect_ratio: str | None = None,
+    image_size: str | None = None,
 ) -> dict | None:
     style_line = f" Honor this project style guide: {style_guide}" if style_guide else ""
     try:
-        image = await _edit_image_call(image_bytes, mime_type, instruction + style_line)
+        image = await _edit_image_call(
+            image_bytes, mime_type, instruction + style_line, aspect_ratio, image_size
+        )
         image["label"] = label
         return image
     except Exception as exc:
@@ -254,11 +299,20 @@ async def _generate_sheet_view(
         return None
 
 
-async def generate_character_sheet(image_bytes: bytes, mime_type: str, style_guide: str = "") -> dict:
+async def generate_character_sheet(
+    image_bytes: bytes,
+    mime_type: str,
+    style_guide: str = "",
+    aspect_ratio: str | None = None,
+    image_size: str | None = None,
+) -> dict:
     """Turnaround + expression sheet for one character, via reference-image conditioning."""
     results = await asyncio.gather(
         *(
-            _generate_sheet_view(image_bytes, mime_type, label, instruction, style_guide)
+            _generate_sheet_view(
+                image_bytes, mime_type, label, instruction, style_guide,
+                aspect_ratio, image_size,
+            )
             for label, instruction in CHARACTER_SHEET_VIEWS
         )
     )

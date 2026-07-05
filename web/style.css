@@ -164,8 +164,21 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .tab-page.active { display: block; }
 
 /* ---------- shared ---------- */
-.toolbar { display: flex; gap: 10px; max-width: 860px; }
+.toolbar { display: flex; gap: 10px; max-width: 860px; align-items: center; }
 .toolbar input { flex: 1; }
+
+.option-row { display: flex; gap: 8px; align-items: center; }
+.option-label { color: var(--muted); font-size: 12px; }
+.option-select {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px;
+  font-size: 12px;
+}
+.option-select:hover { border-color: var(--accent); }
+.option-row .option-select { flex: 1; }
 
 .segmented {
   display: flex;

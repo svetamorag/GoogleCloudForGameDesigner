@@ -54,10 +54,16 @@ Open http://localhost:8000
   The assistant calls the matching tool and the result appears in the right tab.
 - **Characters tab** — enter a prompt; it is automatically rewritten into
   detailed art direction (shown to you), then 5 distinct options are generated.
-  Click **Edit** on any card to send it to the editor.
+  Pick an **aspect ratio** (1:1 up to 21:9) or leave it on Auto. Click **Edit**
+  on any card to send it to the editor.
 - **Editing tab** — edit the selected/uploaded image with text instructions,
   remove backgrounds, generate a character sheet (front/side/back views plus
   expressions from one reference image), browse edit history, download results.
+  The **Aspect** and **Size** selectors control the output: aspect ratio
+  reframes the result (Auto keeps the source framing; background removal always
+  keeps it), and size sets the output resolution (1K/2K/4K — supported by
+  Nano Banana 2 only; the Lite character generator supports aspect ratio but
+  not resolution).
 - **Voice tab** — enter a line; it is spoken by 3 different Gemini Native Audio
   voices in parallel. Bind the take you like to a character name, then paste a
   whole script into **Batch dialogue** (`Character, Line` per row) and every
