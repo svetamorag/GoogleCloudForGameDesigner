@@ -29,37 +29,44 @@ document.querySelectorAll(".tab").forEach((t) =>
 
 // ---------------------------------------------------------------- helpers
 
+// Status text is always inserted via DOM APIs (never innerHTML) - server
+// error details must not be interpreted as markup.
 function setStatus(el, text, kind = "") {
   el.className = `status ${kind}`;
-  el.innerHTML = text ? (kind === "" && text ? `<span class="spinner"></span>${text}` : text) : "";
+  el.textContent = "";
+  if (!text) return;
+  if (kind === "") {
+    const spinner = document.createElement("span");
+    spinner.className = "spinner";
+    el.append(spinner);
+  }
+  el.append(document.createTextNode(text));
 }
 
-async function api(path, body) {
+function errorDetail(data, res) {
+  if (Array.isArray(data.detail)) {
+    return data.detail.map((d) => d.msg || String(d)).join("; ");
+  }
+  return data.detail || `${res.status} ${res.statusText}`;
+}
+
+async function request(path, method = "GET", body) {
   const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    method,
+    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || `${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(errorDetail(data, res));
   return data;
 }
 
-async function api2(path, method) {
-  const res = await fetch(path, { method });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || `${res.status} ${res.statusText}`);
-  return data;
-}
+const api = (path, body) => request(path, "POST", body);
+
+const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
 function imgSrc(image) {
   return `data:${image.mime_type};base64,${image.data_b64}`;
-}
-
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
 }
 
 // ---------------------------------------------------------------- projects
@@ -82,7 +89,7 @@ function renderProjectSelect() {
 
 async function loadProjects() {
   try {
-    const { projects } = await api2("/api/projects", "GET");
+    const { projects } = await request("/api/projects");
     state.projects = projects;
     if (!projects.some((p) => p.id === state.projectId)) {
       state.projectId = projects[0]?.id || "default";
@@ -124,8 +131,8 @@ $("project-style").addEventListener("click", () => {
 
 $("style-guide-save").addEventListener("click", async () => {
   try {
-    const { project } = await api2Body(
-      `/api/projects/${state.projectId}/style-guide`, "PUT",
+    const { project } = await request(
+      `/api/projects/${encodeURIComponent(state.projectId)}/style-guide`, "PUT",
       { style_guide: $("style-guide-text").value }
     );
     const idx = state.projects.findIndex((p) => p.id === project.id);
@@ -135,17 +142,6 @@ $("style-guide-save").addEventListener("click", async () => {
     addMessage("system", `Could not save style guide: ${err.message}`);
   }
 });
-
-async function api2Body(path, method, body) {
-  const res = await fetch(path, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || `${res.status} ${res.statusText}`);
-  return data;
-}
 
 // ---------------------------------------------------------------- characters
 
@@ -165,10 +161,13 @@ async function generateCharacters(prompt) {
     const note = failed
       ? ` (${failed} failed - model quota; retry in a minute for more)`
       : "";
-    const rewritten = enhanced_prompt && enhanced_prompt !== prompt
-      ? `<br><span class="rewritten">Rewritten prompt: "${escapeHtml(enhanced_prompt)}"</span>`
-      : "";
-    setStatus(status, `${images.length} option(s) ready${note}. Click "Edit" to refine one.${rewritten}`, "ok");
+    setStatus(status, `${images.length} option(s) ready${note}. Click "Edit" to refine one.`, "ok");
+    if (enhanced_prompt && enhanced_prompt !== prompt) {
+      const rewritten = document.createElement("div");
+      rewritten.className = "rewritten";
+      rewritten.textContent = `Rewritten prompt: "${enhanced_prompt}"`;
+      status.append(rewritten);
+    }
   } catch (err) {
     setStatus(status, err.message, "error");
   } finally {
@@ -282,14 +281,19 @@ $("remove-bg").addEventListener("click", () => runEdit("bg"));
 $("upload-input").addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    setStatus($("edit-status"), "Unsupported image type. Use PNG, JPEG, WebP or GIF.", "error");
+    e.target.value = "";
+    return;
+  }
   const reader = new FileReader();
   reader.onload = () => {
     const [, mime, b64] = reader.result.match(/^data:(.+?);base64,(.+)$/) || [];
-    if (b64) {
+    if (b64 && ALLOWED_IMAGE_TYPES.includes(mime)) {
       sendToEditor({ data_b64: b64, mime_type: mime }, `Upload: ${file.name}`);
       api("/api/assets/upload", {
         image_b64: b64, mime_type: mime, label: `Upload: ${file.name}`, project_id: state.projectId,
-      }).catch(() => {});
+      }).catch((err) => setStatus($("edit-status"), `Could not save upload: ${err.message}`, "error"));
     }
   };
   reader.readAsDataURL(file);
@@ -488,7 +492,7 @@ async function loadGallery() {
   const grid = $("gallery-grid");
   setStatus(status, "Loading assets...");
   try {
-    const { assets } = await api2(`/api/assets?project_id=${encodeURIComponent(state.projectId)}`, "GET");
+    const { assets } = await request(`/api/assets?project_id=${encodeURIComponent(state.projectId)}`);
     grid.innerHTML = "";
     if (!assets.length) {
       setStatus(status, "No assets yet. Everything you generate, edit or upload lands here.", "ok");
@@ -548,7 +552,7 @@ function galleryCard(asset) {
   delBtn.className = "danger";
   delBtn.addEventListener("click", async () => {
     try {
-      await api2(`/api/assets/${asset.id}`, "DELETE");
+      await request(`/api/assets/${encodeURIComponent(asset.id)}`, "DELETE");
       card.remove();
       const left = document.querySelectorAll("#gallery-grid .card").length;
       setStatus($("gallery-status"), left ? `${left} asset(s).` : "No assets yet.", "ok");

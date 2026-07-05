@@ -6,5 +6,6 @@ __pycache__/
 # Local config (contains your GCP project id)
 .env
 
-# Generated assets (local gallery storage)
+# Generated assets (local gallery storage) and their JSON indexes
 assets/
+data/

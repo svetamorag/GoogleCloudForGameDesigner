@@ -10,12 +10,15 @@ Models used:
 import asyncio
 import base64
 import io
+import logging
 import os
 import random
 import wave
 
 from google import genai
 from google.genai import types
+
+logger = logging.getLogger(__name__)
 
 CHAT_MODEL = "gemini-3.5-flash"
 IMAGE_MODEL = "gemini-3.1-flash-image"
@@ -53,6 +56,26 @@ def get_live_client() -> genai.Client:
     return get_client(os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
 
 
+# ---------------------------------------------------------------- errors
+
+def is_quota_error(exc: Exception) -> bool:
+    text = str(exc)
+    return "429" in text or "RESOURCE_EXHAUSTED" in text
+
+
+def error_summary(exc: Exception) -> str:
+    """Short, safe message for the UI. Raw exception text (which can contain
+    project ids, file paths and library internals) stays in the server log."""
+    if is_quota_error(exc):
+        return "Model quota exceeded. Wait a minute and retry."
+    text = str(exc)
+    if any(k in text for k in ("401", "403", "UNAUTHENTICATED", "PERMISSION_DENIED",
+                               "Reauthentication", "default credentials")):
+        return ("Vertex AI authentication or permission error. Run "
+                "'gcloud auth application-default login' and check the project's IAM roles.")
+    return "The model request failed. Check the server logs for details."
+
+
 # ---------------------------------------------------------------- images
 
 def _extract_image(response) -> dict | None:
@@ -77,7 +100,7 @@ async def _with_retry(coro_factory, attempts: int = 5, base_delay: float = 12.0)
         try:
             return await coro_factory()
         except Exception as exc:
-            if "429" not in str(exc) and "RESOURCE_EXHAUSTED" not in str(exc):
+            if not is_quota_error(exc):
                 raise
             last_exc = exc
             if attempt < attempts - 1:
@@ -147,24 +170,26 @@ async def generate_characters(prompt: str, style_guide: str = "") -> dict:
     )
     images = [r for r in results if isinstance(r, dict)]
     errors = [r for r in results if isinstance(r, Exception)]
+    for exc in errors:
+        logger.warning("Character option generation failed: %s", exc)
     if not images and errors:
         raise errors[0]
     failed = 5 - len(images)
     return {
         "images": images,
         "failed": failed,
-        "error": str(errors[0])[:200] if errors else None,
+        "error": error_summary(errors[0]) if errors else None,
         "enhanced_prompt": enhanced_prompt,
     }
 
 
-async def _edit_image_call(image_b64: str, mime_type: str, instruction: str) -> dict:
+async def _edit_image_call(image_bytes: bytes, mime_type: str, instruction: str) -> dict:
     async with _image_semaphore:
         response = await _with_retry(
             lambda: get_client().aio.models.generate_content(
                 model=IMAGE_MODEL,
                 contents=[
-                    types.Part.from_bytes(data=base64.b64decode(image_b64), mime_type=mime_type),
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                     instruction,
                 ],
                 config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
@@ -176,22 +201,22 @@ async def _edit_image_call(image_b64: str, mime_type: str, instruction: str) -> 
     return image
 
 
-async def edit_image(image_b64: str, mime_type: str, instruction: str) -> dict:
+async def edit_image(image_bytes: bytes, mime_type: str, instruction: str) -> dict:
     """Object editing on Nano Banana 2."""
     prompt = (
         "Edit the provided image. Apply exactly this change and keep everything "
         f"else identical: {instruction}"
     )
-    return await _edit_image_call(image_b64, mime_type, prompt)
+    return await _edit_image_call(image_bytes, mime_type, prompt)
 
 
-async def remove_background(image_b64: str, mime_type: str) -> dict:
+async def remove_background(image_bytes: bytes, mime_type: str) -> dict:
     prompt = (
         "Remove the background from the provided image completely. Keep the main "
         "subject pixel-perfect and unchanged. Output the subject on a fully "
         "transparent background (PNG with alpha). Do not add shadows or new elements."
     )
-    return await _edit_image_call(image_b64, mime_type, prompt)
+    return await _edit_image_call(image_bytes, mime_type, prompt)
 
 
 # Character sheet views: (label, instruction). Each keeps identity fixed via
@@ -217,22 +242,23 @@ CHARACTER_SHEET_VIEWS = [
 
 
 async def _generate_sheet_view(
-    image_b64: str, mime_type: str, label: str, instruction: str, style_guide: str
+    image_bytes: bytes, mime_type: str, label: str, instruction: str, style_guide: str
 ) -> dict | None:
     style_line = f" Honor this project style guide: {style_guide}" if style_guide else ""
     try:
-        image = await _edit_image_call(image_b64, mime_type, instruction + style_line)
+        image = await _edit_image_call(image_bytes, mime_type, instruction + style_line)
         image["label"] = label
         return image
-    except Exception:
+    except Exception as exc:
+        logger.warning("Character sheet view %r failed: %s", label, exc)
         return None
 
 
-async def generate_character_sheet(image_b64: str, mime_type: str, style_guide: str = "") -> dict:
+async def generate_character_sheet(image_bytes: bytes, mime_type: str, style_guide: str = "") -> dict:
     """Turnaround + expression sheet for one character, via reference-image conditioning."""
     results = await asyncio.gather(
         *(
-            _generate_sheet_view(image_b64, mime_type, label, instruction, style_guide)
+            _generate_sheet_view(image_bytes, mime_type, label, instruction, style_guide)
             for label, instruction in CHARACTER_SHEET_VIEWS
         )
     )
